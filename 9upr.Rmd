@@ -1,0 +1,121 @@
+---
+title: "Упражнение 9"
+author: ""
+date: '06 апреля 2017 г '
+output: html_document
+---
+
+
+```{r include = F}
+library('e1071')    
+library('ROCR')      
+library('ISLR')    
+attach(Auto)
+head(Auto)
+
+high.mpg <- ifelse(mpg < 23, "No", "Yes")
+
+Auto <- data.frame(Auto, high.mpg)
+Auto <- Auto[,-(1:2)]
+Auto <- Auto[,-(2:3)]
+Auto <- Auto[,-(3:5)]
+
+```
+
+## Строим график разброса наблюдений в пространстве предикторов 
+
+
+```{r}
+
+svmfit <- svm(high.mpg ~ ., data = Auto, kernel = "linear", cost = 10, scale = FALSE)
+# на графике опорные наблюдения показаны крестиками
+plot(svmfit, Auto)
+
+```
+
+## Работа с настроечным параметром 
+
+```{r echo = T, warning = F, error = F}
+
+# список опорных векторов
+svmfit$index
+# сводка по модели
+summary(svmfit)
+# уменьшаем штрафной параметр
+svmfit <- svm(high.mpg ~ ., data = Auto, kernel = "linear", cost = 0.1, scale = FALSE)
+plot(svmfit, Auto)
+svmfit$index
+
+# делаем перекрёстную проверку, изменяя штраф (аргумент cost)
+set.seed(1)
+tune.out <- tune(svm, high.mpg ~ ., data = Auto, kernel = "linear",
+                 ranges = list(cost = c(0.001, 0.01, 0.1, 1, 5, 10, 100)))
+summary(tune.out)
+# лучшая модель -- с минимальной ошибкой
+bestmod <- tune.out$best.model
+summary(bestmod)
+
+```
+
+
+## Подгонка модели на обучающей выборке, прогноз на тестовой
+
+```{r echo = T, warning = F, error = F}
+
+# обуч выборка
+train <- sample(1:nrow(Auto), 196)
+# тестовая выборка
+auto.test <- Auto[-train,]
+
+# делаем прогноз по лучшей модели на тестовой выборке
+ypred <- predict(bestmod, auto.test)
+# матрица неточностей
+table(predict = ypred, truth = auto.test$high.mpg)
+
+# прогноз по модели с cost = 0.01
+svmfit <- svm(high.mpg ~ ., data = Auto, kernel = "linear", cost = .01, scale = FALSE)
+ypred <- predict(svmfit, auto.test)
+# матрица неточностей
+table(predict = ypred, truth = auto.test$high.mpg)
+
+#доля верных прогнозов
+(79+93)/(19+93+5+79)
+
+```
+
+
+## ROC-кривые
+
+```{r echo = T, warning = F, error = F}
+
+rocplot <- function(pred, truth, ...){
+  predob = prediction(pred, truth)
+  perf = performance(predob, "tpr", "fpr")
+  plot(perf,...)}
+
+# последняя оптимальная модель
+svmfit.opt <- svm(high.mpg ~ ., data = Auto[train, ], 
+                  kernel = "radial", gamma = 2, cost = 1, decision.values = T)
+# количественные модельные значения, на основе которых присваивается класс
+fitted <- attributes(predict(svmfit.opt, Auto[train, ],
+                             decision.values = TRUE))$decision.values
+
+# график для обучающей выборки
+par(mfrow = c(1, 2))
+rocplot(fitted, Auto[train, "high.mpg"], main = "Training Data")
+# более гибкая модель (gamma выше)
+svmfit.flex = svm(high.mpg ~ ., data = Auto[train, ], kernel = "radial", 
+                  gamma = 50, cost = 0.1, decision.values = T)
+fitted <- attributes(predict(svmfit.flex, Auto[train, ], 
+                             decision.values = T))$decision.values
+rocplot(fitted, Auto[train,"high.mpg"], add = T, col = "red")
+
+# график для тестовой выборки
+fitted <- attributes(predict(svmfit.opt, Auto[-train, ], 
+                             decision.values = T))$decision.values
+rocplot(fitted, Auto[-train, "high.mpg"], main = "Test Data")
+fitted <- attributes(predict(svmfit.flex, Auto[-train, ], 
+                             decision.values = T))$decision.values
+rocplot(fitted, Auto[-train, "high.mpg"], add = T, col = "red")
+
+```
